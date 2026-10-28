@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ERC-8004 agent viewer</title>
+<style>
+  :root { color-scheme: light dark; --bg: #fbf7f1; --surface: #ffffff; --text: #1f1d1b; --muted: #5d5750; --border: #ddd3c6; --primary: #a4492a; --ok: #1d6b3a; --bad: #a3261b; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #171514; --surface: #221f1d; --text: #f3ede6; --muted: #b9afa4; --border: #3a3430; --primary: #e08a63; --ok: #6fd08f; --bad: #ff8a7a; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  main { max-width: 760px; margin: 0 auto; padding: 16px; }
+  form, .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 12px; overflow-wrap: anywhere; }
+  form { display: grid; gap: 10px; }
+  label { display: grid; gap: 4px; font-weight: 600; font-size: 0.9rem; }
+  input, select, button { font: inherit; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); width: 100%; min-width: 0; }
+  button { background: var(--primary); color: #fff; border: 0; font-weight: 700; }
+  .head { display: flex; gap: 12px; align-items: center; }
+  .head img { width: 64px; height: 64px; border-radius: 12px; object-fit: cover; flex: none; }
+  .muted { color: var(--muted); } .ok { color: var(--ok); } .bad { color: var(--bad); font-weight: 700; }
+  ul { padding-left: 18px; margin: 6px 0; } code { font-size: 0.8rem; }
+  .tag { display: inline-block; border: 1px solid var(--border); border-radius: 999px; padding: 0 8px; font-size: 0.8rem; margin-right: 4px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>ERC-8004 agent viewer</h1>
+  <p class="muted">An agent's on chain identity (owner and registration file) and its reputation feedback, on Base and Base Sepolia.</p>
+  <form id="f">
+    <label for="agentId">Agent id <input id="agentId" name="agentId" inputmode="numeric" required value="1"></label>
+    <label for="network">Network
+      <select id="network" name="network"><option value="base">Base</option><option value="base-sepolia">Base Sepolia</option></select>
+    </label>
+    <button type="submit">Show agent</button>
+  </form>
+  <div id="out" aria-live="polite"></div>
+</main>
+<script type="module">
+  import { loadAgent, httpRpc, httpJson, resolveUri } from './viewer.js';
+  import { REGISTRIES, NETWORKS } from './config.js';
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const q = new URLSearchParams(location.search);
+  if (q.get('network') in NETWORKS) $('network').value = q.get('network');
+  if (q.get('agent')) $('agentId').value = q.get('agent');
+  async function show() {
+    const network = $('network').value;
+    $('out').innerHTML = '<div class="card">Loading...</div>';
+    const r = await loadAgent({ agentId: $('agentId').value.trim(), network, identityRegistry: REGISTRIES[network].identity, reputationRegistry: REGISTRIES[network].reputation, rpc: httpRpc(NETWORKS[network].rpc), fetchJson: httpJson() });
+    if (r.status === 'empty') { $('out').innerHTML = `<div class="card"><strong>No such agent.</strong> <span class="muted">${esc(r.error)} on ${esc(NETWORKS[network].name)}.</span></div>`; return; }
+    if (r.status === 'error' && !r.owner) { $('out').innerHTML = `<div class="card bad">Could not load: ${esc(r.error)}</div>`; return; }
+    const g = r.registration || {};
+    const endpoints = Array.isArray(g.endpoints) ? g.endpoints : Array.isArray(g.services) ? g.services : [];
+    const trust = Array.isArray(g.supportedTrust) ? g.supportedTrust : [];
+    let html = `<div class="card"><div class="head">${g.image ? `<img src="${esc(resolveUri(String(g.image)))}" alt="Image of ${esc(g.name || 'the agent')}">` : ''}<div><h2 style="margin:0">${esc(g.name || 'Agent ' + r.agentId)}</h2><div class="muted">Agent ${esc(r.agentId)} on ${esc(NETWORKS[network].name)}</div></div></div>` +
+      (g.description ? `<p>${esc(g.description)}</p>` : '') +
+      `<div>Owner <code>${esc(r.owner)}</code></div><div>tokenURI <code>${esc(r.tokenURI && r.tokenURI.length > 120 ? r.tokenURI.slice(0, 120) + '...' : r.tokenURI)}</code></div>` +
+      (endpoints.length ? `<h3>Endpoints</h3><ul>${endpoints.map((e) => `<li>${esc(e.name || e.type || '')}: <code>${esc(e.endpoint || e.url || '')}</code></li>`).join('')}</ul>` : '') +
+      (trust.length ? `<h3>Supported trust</h3><div>${trust.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : '') +
+      (r.status === 'error' ? `<p class="bad">${esc(r.error)}</p>` : '') + '</div>';
+    if (r.feedback) {
+      const f = r.feedback;
+      html += f.count === 0 ? '<div class="card"><h3 style="margin-top:0">Reputation</h3>No feedback yet.</div>' :
+        `<div class="card"><h3 style="margin-top:0">Reputation</h3><div><strong>${f.count}</strong> feedback, average <strong>${f.average}</strong></div><h4>Latest</h4><ul>${f.items.slice(0, 10).map((i) => `<li>${esc(i.score)} from <code>${esc(i.client)}</code> ${i.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</li>`).join('')}</ul></div>`;
+    }
+    $('out').innerHTML = html;
+  }
+  $('f').addEventListener('submit', (e) => { e.preventDefault(); show(); });
+</script>
+</body>
+</html>

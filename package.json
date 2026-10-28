@@ -1,0 +1,28 @@
+{
+  "name": "erc8004-viewer",
+  "version": "0.1.0",
+  "description": "Static page showing an agent's ERC-8004 identity, registration file and reputation on Base and Base Sepolia",
+  "main": "viewer.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "test:live": "ERC8004_LIVE=1 node --test test/*.test.js",
+    "mutation": "node scripts/mutation-check.mjs"
+  },
+  "keywords": [],
+  "author": "Astra Trading Co",
+  "license": "MIT",
+  "type": "module",
+  "devDependencies": {
+    "viem": "^2.57.13"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/astra-tc/erc8004-viewer"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
